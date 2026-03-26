@@ -1,5 +1,8 @@
 version: '3.8'
 
+# Run with: podman-compose up -d
+# Requires: podman-compose (pip install podman-compose)
+
 services:
   etcd:
     container_name: milvus-etcd
@@ -10,11 +13,12 @@ services:
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
-      - ./volumes/etcd:/etcd
-    command: etcd
-      -advertise-client-urls=http://127.0.0.1:2379
-      -listen-client-urls=http://0.0.0.0:2379
-      --data-dir=/etcd
+      - ./volumes/etcd:/etcd:z
+    command:
+      - etcd
+      - --advertise-client-urls=http://127.0.0.1:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
     healthcheck:
       test: ["CMD", "etcdctl", "endpoint", "health"]
       interval: 30s
@@ -28,8 +32,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     volumes:
-      - ./volumes/minio:/minio_data
-    command: minio server /minio_data --console-address ":9001"
+      - ./volumes/minio:/minio_data:z
+    command: ["minio", "server", "/minio_data", "--console-address", ":9001"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -44,7 +48,7 @@ services:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
     volumes:
-      - ./volumes/milvus:/var/lib/milvus
+      - ./volumes/milvus:/var/lib/milvus:z
     ports:
       - "19530:19530"
       - "9091:9091"
