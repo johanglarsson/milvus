@@ -3,9 +3,8 @@ Milvus Data Loader
 Reads a CSV file, generates embeddings, and inserts documents into Milvus.
 """
 
-import csv
-import json
 import os
+import re
 import sys
 
 import httpx
@@ -33,7 +32,7 @@ EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 EMBEDDING_DIM      = int(os.getenv("EMBEDDING_DIMENSION", "768"))
 OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY", "")
 
-DATA_FILE = os.getenv("DATA_FILE_PATH", "../data/sample_documents.csv")
+DATA_FILE = os.getenv("DATA_FILE_PATH", "../data/sample_documents.toon")
 
 BATCH_SIZE = 50
 
@@ -64,19 +63,48 @@ def get_embedding(text: str) -> list[float]:
         raise ValueError(f"Unknown EMBEDDING_API_TYPE '{EMBEDDING_API_TYPE}'. Use 'ollama' or 'openai'.")
 
 
-# ── CSV ───────────────────────────────────────────────────────────────────────
+# ── .toon parser ─────────────────────────────────────────────────────────────
+# Format:
+#   [<id>]           — starts a new entry
+#   key: value       — field assignment (title, creator, content)
+#   # comment        — ignored
+#   blank lines      — ignored
 
-def read_csv(path: str) -> list[dict]:
+def read_toon(path: str) -> list[dict]:
     documents = []
-    with open(path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            documents.append({
-                "id":      int(row["id"]),
-                "title":   row["title"][:500],
-                "author":  row["author"][:200],
-                "content": row["content"][:5000],
-            })
-    print(f"Read {len(documents)} documents from {path}")
+    current: dict | None = None
+
+    with open(path, encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.rstrip("\n")
+
+            # Skip comments and blank lines
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+
+            # New entry header: [id]
+            m = re.fullmatch(r"\[(\d+)\]", stripped)
+            if m:
+                if current:
+                    documents.append(current)
+                current = {"id": int(m.group(1))}
+                continue
+
+            # Key: value pair
+            if current is not None and ":" in line:
+                key, _, value = line.partition(":")
+                key = key.strip().lower()
+                value = value.strip()
+                if key == "creator":
+                    key = "author"          # normalise to schema field name
+                if key in ("title", "author", "content"):
+                    current[key] = value[:{"title": 500, "author": 200, "content": 5000}[key]]
+
+    if current:
+        documents.append(current)
+
+    print(f"Read {len(documents)} toons from {path}")
     return documents
 
 
@@ -131,7 +159,7 @@ def main():
     print(f"Data file  : {data_file}")
     print()
 
-    documents = read_csv(data_file)
+    documents = read_toon(data_file)
 
     print(f"Generating embeddings for {len(documents)} documents...")
     for i, doc in enumerate(documents):
